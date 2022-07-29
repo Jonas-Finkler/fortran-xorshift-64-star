@@ -12,6 +12,8 @@ program main
     real(dp) :: x2(n, n)
     real(dp) :: x3(n, n, n)
     real(dp) :: t(m)
+    real(dp) :: x
+    integer :: count, i, j
 
     ! initialize rng with seed
     rng = RandomNumberGenerator(123456_di)
@@ -40,6 +42,22 @@ program main
     print*, 'mean', sum(t) / m
     print*, 'std-dev', sqrt(sum((t-sum(t)/m)**2) / m)
 
+
+    ! Now a simple test of the random_normal routine.
+    ! Plot the numerical and analytical CDFs using:
+    ! $./a.out | grep 'X' > cdf.txt
+    ! $gnuplot
+    ! $plot 'cdf.txt' u 2:3, 'cdf.txt' u 2:4 w lines
+    do i=-300, 300
+        x = real(i,dp) / 100._dp
+        c = 0
+        do j=1,m
+            if (t(j) < x) then
+                c = c + 1
+            end if
+        end do
+        print*, 'X', x, real(c, dp) / m, 0.5_dp * (1 + erf(x / sqrt(2._dp)))
+    end do
 
 
 end program main
