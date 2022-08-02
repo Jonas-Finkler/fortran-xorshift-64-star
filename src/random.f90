@@ -10,7 +10,6 @@ module random
     type RandomNumberGenerator
         integer(di) :: state
     contains
-        procedure :: constructor => rng_constructor
         procedure :: shuffle
 
         procedure, private :: random_uniform_0D
@@ -25,14 +24,6 @@ module random
         generic, public :: random_normal => random_normal_0D, random_normal_1D, random_normal_2D, random_normal_3D
     end type RandomNumberGenerator
 contains
-
-    subroutine rng_constructor(self, seed)
-        class(RandomNumberGenerator) :: self
-        integer(di), intent(in) :: seed
-
-        self%state = seed
-    end subroutine
-
 
     ! Knuth shuffle for a list of integers
     subroutine shuffle(self, n, a)
@@ -178,37 +169,49 @@ contains
         implicit none
         real(dp) :: rnd
         integer(di), intent(inout) :: state
+        ! integer(16) :: x
         integer(di) :: b(4)
-        integer(di), parameter :: f(4) = [56605, 20332, 62609, 9541] ! 2685821657736338717 in base 2**16
+        integer(di), parameter :: f(4) = [56605_di, 20332_di, 62609_di, 9541_di] ! 2685821657736338717 in base 2**16
         integer(di) :: m(4)
 
+        ! state is 64 bit int (signed, but the sign does not matter for the bitwise shift and xor operations).
         state = ieor(state, ishft(state, -12))
         state = ieor(state, ishft(state,  25))
         state = ieor(state, ishft(state, -27))
-
-        ! fortran has no unsigned ints.
-        ! below would be how we convert signed to unsigned (twos complement)
-        ! if (x < 0) then
+        ! To get the random real from the state, we need to do a multiplication and a modulo.
+        ! For this the sign matters.
+        ! In gfortran, we can use a signed 128 bit integer to represent an unsigned 64 bit integer.
+        ! We can convert the state to a signed int (twos complement).
+        ! if (state < 0) then
         !   x = 2_16**64 + state
         ! else
         !   x = state
         ! end if
-        ! doing the modulo is equivalent however
-        ! BUT: no 128 bit int support from intel compiler
-        ! we therefore use some trickery by transforming the number into base 2**16
-        ! the version below would work with gnu compiler
-        ! x = modulo(state * 2685821657736338717_16, 2_16**64)
-        ! rnd = real(x, 8) / 2_16**64
-        ! write(*,*) rnd
-        ! this is the version for intel
+        ! But, due to the modulo we don't actually even need this.
+        ! x = state ! this is fine too.
+        ! We then do the multiplication and modulo
+        ! rnd = real(modulo(x * 2685821657736338717_16, 2_16**64), dp) / 2_16**64 ! doesn't work with ifort
+        ! But, since we don't have 128 bit integers in ifort we need another representation.
+        ! We therefore represent the state using four signed 64 bit integers.
+        ! Surprisingly this version is even faster on gfortran (more than twice).
         call toBase16(state, b)
+        ! modulo is built in here (4*16=64)
         call multBase16(b, f, m)
-        ! call fromBase16(m, xx)
-        ! to return a double we divide by 2^64
-        rnd = m(4) / 2.d0**16 + m(3) / 2.d0**32 + m(2) / 2.d0**48 + m(1) / 2.d0**64
-        ! write(*,*) rnd
-
+        ! ! to return a double we divide by 2^64
+        rnd = m(4) / 2._dp**16 + m(3) / 2._dp**32 + m(2) / 2._dp**48 + m(1) / 2._dp**64
     end function
+
+    ! subroutine fromBase16(b, xx)
+    !     integer(di), intent(in) :: b(4)
+    !     integer(16), intent(out) :: xx
+    !     integer :: i
+
+    !     xx = 0
+    !     do i=1,4
+    !         xx = xx +  b(i) * 2_16**((i-1) * 16)
+    !     end do
+
+    ! end subroutine
 
     ! becaus we cannot use 128 bit ints in ifort we represent our number using 4 ints in base 2**16
     ! x = sum_i b(i) * 2**(16*(i-1))
@@ -222,15 +225,15 @@ contains
 
         b(:) = 0
         if (x<0) then
-            t = (9223372036854775807_8 + x) + 1
-            b(4) = 2_8**15
+            t = (9223372036854775807_di + x) + 1
+            b(4) = 2_di**15
         else
           t = x
         end if
 
         do i=1,4
-            b(i) = b(i) + modulo(t, 2_8**16)
-            t = t / 2_8**16
+            b(i) = b(i) + modulo(t, 2_di**16)
+            t = t / 2_di**16
         end do
 
     end subroutine
@@ -250,10 +253,10 @@ contains
             end do
         end do
         do i=1,3
-            c(i+1) = c(i+1) + c(i) / 2_8**16
-            c(i) = modulo(c(i), 2_8**16)
+            c(i+1) = c(i+1) + c(i) / 2_di**16
+            c(i) = modulo(c(i), 2_di**16)
         end do
-        c(4) = modulo(c(4), 2_8**16)
+        c(4) = modulo(c(4), 2_di**16)
 
     end subroutine
 
